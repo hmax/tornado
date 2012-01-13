@@ -674,6 +674,16 @@ def _parse(reader, template, in_block=None):
             reader.consume(2)
             if not contents:
                 raise ParseError("Empty expression on line %d" % line)
+            
+            if contents[-1]=="-":
+                contents=contents[:-1]
+                if reader.remaining() >= 1:
+                    if reader[0]=="\n":
+                        reader.consume(1)
+                if reader.remaining() >= 2:
+                    if reader[0]=="\r" and reader[1]=="\n":
+                        reader.consume(2)
+
             body.chunks.append(_Expression(contents))
             continue
 
@@ -686,6 +696,16 @@ def _parse(reader, template, in_block=None):
         reader.consume(2)
         if not contents:
             raise ParseError("Empty block tag ({%% %%}) on line %d" % line)
+        if contents[-1]=="-":
+            contents=contents[:-1]
+            if reader.remaining() >= 1:
+                if reader[0]=="\n":
+                    reader.consume(1)
+            if reader.remaining() >= 2:
+                if reader[0]=="\r" and reader[1]=="\n":
+                    reader.consume(2)
+
+
 
         operator, space, suffix = contents.partition(" ")
         suffix = suffix.strip()
