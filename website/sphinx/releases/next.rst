@@ -4,6 +4,13 @@ What's new in the next release of Tornado
 In progress
 -----------
 
+Security fixes
+~~~~~~~~~~~~~~
+
+* `tornado.simple_httpclient` now disables SSLv2 in all cases.  Previously
+  SSLv2 would be allowed if the Python interpreter was linked against a
+  pre-1.0 version of OpenSSL.
+
 Backwards-incompatible changes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -11,9 +18,13 @@ Backwards-incompatible changes
   processes exit cleanly rather than returning ``None``.  The old behavior
   was surprising and inconsistent with most of the documented examples
   of this function (which did not check the return value).
+* On Python 2.6, `tornado.simple_httpclient` only supports SSLv3.  This
+  is because Python 2.6 does not expose a way to support both SSLv3 and TLSv1
+  without also supporting the insecure SSLv2.
 * `tornado.websocket` no longer supports the older "draft 76" version
   of the websocket protocol by default, although this version can
   be enabled by overriding `tornado.websocket.WebSocketHandler.allow_draft76`.
+
 
 ``IOLoop`` and ``IOStream``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -23,6 +34,8 @@ Backwards-incompatible changes
   when there is a lot of buffered data, which improves peformance of
   `SimpleAsyncHTTPClient` when downloading files with lots of
   chunks.
+* `SSLIOStream` now works correctly when ``ssl_version`` is set to
+  a value other than ``SSLv23``.
 * Idle ``IOLoops`` no longer wake up several times a second.
 * `tornado.ioloop.PeriodicCallback` no longer triggers duplicate callbacks
   when stopped and started repeatedly.
@@ -52,8 +65,8 @@ Other modules
 
 * `SimpleAsyncHTTPClient` no longer hangs on ``HEAD`` requests,
   responses with no content, or empty ``POST``/``PUT`` response bodies.
-* `tornado.platform.twisted` compatibility has been improved.  However,
-  only Twisted version 11.0.0 is supported (and not 11.1.0).
+* `tornado.platform.twisted` compatibility has been significantly improved.
+  Twisted version 11.1.0 is now supported in addition to 11.0.0.
 * `tornado.web` now behaves better when given malformed ``Cookie`` headers
 * `RequestHandler.redirect` now has a ``status`` argument to send
   status codes other than 301 and 302.
@@ -64,5 +77,12 @@ Other modules
   even when `os.urandom` is not implemented.
 * `HTTPServer` with ``xheaders=True`` will no longer accept
   ``X-Real-IP`` headers that don't look like valid IP addresses.
+* `HTTPServer` now treats the ``Connection`` request header as
+  case-insensitive.
 * Exception handling in `tornado.gen` has been improved.  It is now possible
   to catch exceptions thrown by a ``Task``.
+* `tornado.netutil.bind_sockets` now works when ``getaddrinfo`` returns
+  duplicate addresses.
+* `tornado.version_info` is now a four-tuple so official releases can be
+  distinguished from development branches.
+* `tornado.curl_httpclient` now accepts non-integer timeouts.
