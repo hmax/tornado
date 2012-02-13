@@ -1,4 +1,4 @@
-from __future__ import with_statement
+from __future__ import absolute_import, division, with_statement
 
 import collections
 import gzip
@@ -12,6 +12,7 @@ from tornado.testing import AsyncHTTPTestCase, LogTrapTestCase
 from tornado.util import b
 from tornado.web import RequestHandler, Application, asynchronous, url
 
+
 class SimpleHTTPClientCommonTestCase(HTTPClientCommonTestCase):
     def get_http_client(self):
         client = SimpleAsyncHTTPClient(io_loop=self.io_loop,
@@ -23,6 +24,7 @@ class SimpleHTTPClientCommonTestCase(HTTPClientCommonTestCase):
 # try to run it again.
 del HTTPClientCommonTestCase
 
+
 class TriggerHandler(RequestHandler):
     def initialize(self, queue, wake_callback):
         self.queue = queue
@@ -32,27 +34,46 @@ class TriggerHandler(RequestHandler):
     def get(self):
         logging.info("queuing trigger")
         self.queue.append(self.finish)
-        self.wake_callback()
+        if self.get_argument("wake", "true") == "true":
+            self.wake_callback()
+
 
 class HangHandler(RequestHandler):
     @asynchronous
     def get(self):
         pass
 
+
 class ContentLengthHandler(RequestHandler):
     def get(self):
         self.set_header("Content-Length", self.get_argument("value"))
         self.write("ok")
 
+
 class HeadHandler(RequestHandler):
     def head(self):
         self.set_header("Content-Length", "7")
+
 
 class NoContentHandler(RequestHandler):
     def get(self):
         if self.get_argument("error", None):
             self.set_header("Content-Length", "7")
         self.set_status(204)
+
+
+class SeeOther303PostHandler(RequestHandler):
+    def post(self):
+        assert self.request.body == b("blah")
+        self.set_header("Location", "/303_get")
+        self.set_status(303)
+
+
+class SeeOther303GetHandler(RequestHandler):
+    def get(self):
+        assert not self.request.body
+        self.write("ok")
+
 
 class SimpleHTTPClientTestCase(AsyncHTTPTestCase, LogTrapTestCase):
     def setUp(self):
@@ -72,6 +93,8 @@ class SimpleHTTPClientTestCase(AsyncHTTPTestCase, LogTrapTestCase):
             url("/content_length", ContentLengthHandler),
             url("/head", HeadHandler),
             url("/no_content", NoContentHandler),
+            url("/303_post", SeeOther303PostHandler),
+            url("/303_get", SeeOther303GetHandler),
             ], gzip=True)
 
     def test_singleton(self):
@@ -150,11 +173,21 @@ class SimpleHTTPClientTestCase(AsyncHTTPTestCase, LogTrapTestCase):
         self.assertTrue(response.effective_url.endswith("/countdown/2"))
         self.assertTrue(response.headers["Location"].endswith("/countdown/1"))
 
+    def test_303_redirect(self):
+        response = self.fetch("/303_post", method="POST", body="blah")
+        self.assertEqual(200, response.code)
+        self.assertTrue(response.request.url.endswith("/303_post"))
+        self.assertTrue(response.effective_url.endswith("/303_get"))
+        #request is the original request, is a POST still
+        self.assertEqual("POST", response.request.method)
+
     def test_request_timeout(self):
-        response = self.fetch('/hang', request_timeout=0.1)
+        response = self.fetch('/trigger?wake=false', request_timeout=0.1)
         self.assertEqual(response.code, 599)
         self.assertTrue(0.099 < response.request_time < 0.11, response.request_time)
         self.assertEqual(str(response.error), "HTTP 599: Timeout")
+        # trigger the hanging request to let it clean up after itself
+        self.triggers.popleft()()
 
     def test_ipv6(self):
         if not socket.has_ipv6:

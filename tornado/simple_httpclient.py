@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import with_statement
+from __future__ import absolute_import, division, with_statement
 
 from tornado.escape import utf8, _unicode, native_str
 from tornado.httpclient import HTTPRequest, HTTPResponse, HTTPError, AsyncHTTPClient, main
@@ -28,11 +28,12 @@ except ImportError:
     from cStringIO import StringIO as BytesIO  # python 2
 
 try:
-    import ssl # python 2.6+
+    import ssl  # python 2.6+
 except ImportError:
     ssl = None
 
 _DEFAULT_CA_CERTS = os.path.dirname(__file__) + '/ca-certificates.crt'
+
 
 class SimpleAsyncHTTPClient(AsyncHTTPClient):
     """Non-blocking HTTP client with no external dependencies.
@@ -53,7 +54,7 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
 
     Some features found in the curl-based AsyncHTTPClient are not yet
     supported.  In particular, proxies are not supported, connections
-    are not reused, and callers cannot select the network interface to be 
+    are not reused, and callers cannot select the network interface to be
     used.
 
     Python 2.6 or higher is required for HTTPS support.  Users of Python 2.5
@@ -117,7 +118,6 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
     def _release_fetch(self, key):
         del self.active[key]
         self._process_queue()
-
 
 
 class _HTTPConnection(object):
@@ -198,7 +198,7 @@ class _HTTPConnection(object):
                 # compatibility with servers configured for TLSv1 only,
                 # but nearly all servers support SSLv3:
                 # http://blog.ivanristic.com/2011/09/ssl-survey-protocol-support.html
-                if sys.version_info >= (2,7):
+                if sys.version_info >= (2, 7):
                     ssl_options["ciphers"] = "DEFAULT:!SSLv2"
                 else:
                     # This is really only necessary for pre-1.0 versions
@@ -250,6 +250,8 @@ class _HTTPConnection(object):
                     'proxy_username', 'proxy_password'):
             if getattr(self.request, key, None):
                 raise NotImplementedError('%s not supported' % key)
+        if "Connection" not in self.request.headers:
+            self.request.headers["Connection"] = "close"
         if "Host" not in self.request.headers:
             self.request.headers["Host"] = parsed.netloc
         username, password = None, None
@@ -257,7 +259,7 @@ class _HTTPConnection(object):
             username, password = parsed.username, parsed.password
         elif self.request.auth_username is not None:
             username = self.request.auth_username
-            password = self.request.auth_password
+            password = self.request.auth_password or ''
         if username is not None:
             auth = utf8(username) + b(":") + utf8(password)
             self.request.headers["Authorization"] = (b("Basic ") +
@@ -310,9 +312,11 @@ class _HTTPConnection(object):
             yield
         except Exception, e:
             logging.warning("uncaught exception", exc_info=True)
-            self._run_callback(HTTPResponse(self.request, 599, error=e, 
+            self._run_callback(HTTPResponse(self.request, 599, error=e,
                                 request_time=time.time() - self.start_time,
                                 ))
+            if hasattr(self, "stream"):
+                self.stream.close()
 
     def _on_close(self):
         self._run_callback(HTTPResponse(
@@ -335,7 +339,7 @@ class _HTTPConnection(object):
                 # use them but if they differ it's an error.
                 pieces = re.split(r',\s*', self.headers["Content-Length"])
                 if any(i != pieces[0] for i in pieces):
-                    raise ValueError("Multiple unequal Content-Lengths: %r" % 
+                    raise ValueError("Multiple unequal Content-Lengths: %r" %
                                      self.headers["Content-Length"])
                 self.headers["Content-Length"] = pieces[0]
             content_length = int(self.headers["Content-Length"])
@@ -363,7 +367,7 @@ class _HTTPConnection(object):
             self.headers.get("Content-Encoding") == "gzip"):
             # Magic parameter makes zlib module understand gzip header
             # http://stackoverflow.com/questions/1838699/how-can-i-decompress-a-gzip-stream-with-zlib
-            self._decompressor = zlib.decompressobj(16+zlib.MAX_WBITS)
+            self._decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
         if self.headers.get("Transfer-Encoding") == "chunked":
             self.chunks = []
             self.stream.read_until(b("\r\n"), self._on_chunk_length)
@@ -380,12 +384,23 @@ class _HTTPConnection(object):
                                    self.request)
         if (self.request.follow_redirects and
             self.request.max_redirects > 0 and
-            self.code in (301, 302)):
+            self.code in (301, 302, 303, 307)):
             new_request = copy.copy(self.request)
             new_request.url = urlparse.urljoin(self.request.url,
                                                self.headers["Location"])
             new_request.max_redirects -= 1
             del new_request.headers["Host"]
+            # http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.3.4
+            # client SHOULD make a GET request
+            if self.code == 303:
+                new_request.method = "GET"
+                new_request.body = None
+                for h in ["Content-Length", "Content-Type",
+                          "Content-Encoding", "Transfer-Encoding"]:
+                    try:
+                        del self.request.headers[h]
+                    except KeyError:
+                        pass
             new_request.original_request = original_request
             final_callback = self.final_callback
             self.final_callback = None
@@ -402,7 +417,7 @@ class _HTTPConnection(object):
                 self.request.streaming_callback(data)
             buffer = BytesIO()
         else:
-            buffer = BytesIO(data) # TODO: don't require one big string?
+            buffer = BytesIO(data)  # TODO: don't require one big string?
         response = HTTPResponse(original_request,
                                 self.code, headers=self.headers,
                                 request_time=time.time() - self.start_time,
@@ -441,6 +456,7 @@ class _HTTPConnection(object):
 class CertificateError(ValueError):
     pass
 
+
 def _dnsname_to_pat(dn):
     pats = []
     for frag in dn.split(r'.'):
@@ -453,6 +469,7 @@ def _dnsname_to_pat(dn):
             frag = re.escape(frag)
             pats.append(frag.replace(r'\*', '[^.]*'))
     return re.compile(r'\A' + r'\.'.join(pats) + r'\Z', re.IGNORECASE)
+
 
 def match_hostname(cert, hostname):
     """Verify that *cert* (in decoded format as returned by
